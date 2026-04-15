@@ -82,7 +82,7 @@ A home security operations lab built on Proxmox, covering the full security oper
 ## Repository Structure
 
 ```
-capstone-soc-lab/
+soc-lab-capstone/
 ├── phase-1-provisioning/
 │   └── README.md
 ├── phase-2-cis-hardening/
@@ -108,6 +108,6 @@ capstone-soc-lab/
 
 ## Phase Documentation
 
-- [Phase 1 — Lab Provisioning](https://github.com/777josephd/soc-lab-capstone/tree/main/phase-1)
+- [Phase 1 — Lab Provisioning](https://github.com/777josephd/soc-lab-capstone/tree/main/phase-1-provisioning)
 - [Phase 2 — CIS Hardening](https://github.com/777josephd/soc-lab-capstone/tree/main/phase-2-cis-hardening)
 - [Phase 3 — Attack Simulation](./phase-3-attack-simulation/README.md)
