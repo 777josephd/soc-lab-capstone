@@ -110,4 +110,4 @@ soc-lab-capstone/
 
 - [Phase 1 — Lab Provisioning](https://github.com/777josephd/soc-lab-capstone/tree/main/phase-1-provisioning)
 - [Phase 2 — CIS Hardening](https://github.com/777josephd/soc-lab-capstone/tree/main/phase-2-cis-hardening)
-- [Phase 3 — Attack Simulation](./phase-3-attack-simulation/README.md)
+- [Phase 3 — Attack Simulation](https://github.com/777josephd/soc-lab-capstone/tree/main/phase-3-attack-simulation)
