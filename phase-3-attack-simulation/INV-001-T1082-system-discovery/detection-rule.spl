@@ -1,0 +1,36 @@
+| T1082 — System Information Discovery
+| Splunk Detection Rule
+| Author: SOC Lab
+| Date: 2026-04-13
+| Severity: Low
+| Tactic: Discovery
+| Technique: T1082
+
+(index=soc-lab-ad OR index=sysmon-ad)
+(
+  (EventCode=4688
+    (Process_Command_Line="*systeminfo*"
+    OR Process_Command_Line="*hostname*"
+    OR Process_Command_Line="*whoami*"
+    OR Process_Command_Line="*MachineGuid*"))
+  OR
+  (EventCode=1
+    (CommandLine="*systeminfo*"
+    OR CommandLine="*hostname*"
+    OR CommandLine="*whoami*"
+    OR CommandLine="*MachineGuid*"))
+)
+| eval technique="T1082 - System Information Discovery"
+| eval tactic="Discovery"
+| eval severity="Low"
+| table _time, host, User, Image, CommandLine, ParentImage, technique, tactic, severity
+| sort _time
+
+| Notes:
+| - EventCode 4688 requires Advanced Audit Policy Process Creation = Success
+|   and command-line auditing enabled (CIS 18.8.1.1)
+| - EventCode 1 (Sysmon) provides equivalent coverage if 4688 is absent
+| - False positives expected from IT asset management tools and monitoring agents
+| - Tune by excluding known-good parent processes (e.g., legitimate RMM tools)
+| - MachineGuid query (Test 9) is a lower-confidence indicator in isolation;
+|   correlate with adjacent systeminfo or hostname execution for higher fidelity
