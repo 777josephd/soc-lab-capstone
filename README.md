@@ -1,6 +1,6 @@
 # Capstone Lab
 
-A home security operations lab built on Proxmox, covering the full security operations lifecycle — from infrastructure provisioning and CIS hardening through adversary simulation, detection engineering, and SOAR automation. Designed, built, and operated solo.
+A security operations lab built on Proxmox, covering the full security operations lifecycle — from infrastructure provisioning and CIS hardening through adversary simulation, detection engineering, and SOAR automation. Designed, built, and operated solo.
 
 ---
 
