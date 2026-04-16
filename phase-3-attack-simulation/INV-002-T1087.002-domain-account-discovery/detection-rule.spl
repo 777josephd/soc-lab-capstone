@@ -1,0 +1,39 @@
+`| title: [Discovery] T1087.002 - Domain Account Discovery
+| Trigger: Per result
+| Severity: Medium
+| Indexes: soc-lab-ad, sysmon-ad
+| FP Exclusions: VSSVC.exe excluded from 4799 branch`
+
+(index=soc-lab-ad OR index=sysmon-ad)
+(
+  (
+    (EventCode=4688 OR EventCode=1)
+    (
+      Process_Command_Line="*net user*"            OR
+      Process_Command_Line="*net group*"           OR
+      Process_Command_Line="*get-aduser*"          OR
+      Process_Command_Line="*get-localgroupmember*" OR
+      Process_Command_Line="*query user*"          OR
+      CommandLine="*net user*"                     OR
+      CommandLine="*net group*"                    OR
+      CommandLine="*get-aduser*"                   OR
+      CommandLine="*get-localgroupmember*"         OR
+      CommandLine="*query user*"
+    )
+  )
+  OR
+  (
+    EventCode=4799
+    NOT Calling_Process_Name="*VSSVC*"
+  )
+)
+| eval technique="T1087.002 - Domain Account Discovery"
+| eval tactic="Discovery"
+| eval severity="Medium"
+| eval source_rule="SPL-T1087.002-DomainAccountDiscovery"
+| table _time, host, Account_Name,
+        Process_Command_Line, CommandLine,
+        Image, process_name,
+        Group_Name, Calling_Process_Name,
+        technique, tactic, severity, source_rule
+| sort _time

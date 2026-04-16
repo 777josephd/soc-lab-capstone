@@ -1,0 +1,81 @@
+title: Domain Account Discovery via Native Windows Utilities
+id: c8f3a2e1-4d9b-4e7f-8a1c-2b4d6f8e0a2c
+status: experimental
+description: >
+  Detects domain account enumeration using native Windows utilities and
+  PowerShell cmdlets including net user, net group, Get-ADUser, and
+  Get-LocalGroupMember. Also detects security-enabled local group
+  enumeration via Event ID 4799, excluding known false positive processes.
+  Adversaries enumerate domain accounts to identify privileged targets
+  for follow-on attacks including credential access and lateral movement.
+  Observed in APT29 (SolarWinds — Get-ADUser/Get-ADGroupMember),
+  APT41 (net commands for domain admin enumeration), and Medusa Group
+  (net user /domain).
+references:
+  - https://attack.mitre.org/techniques/T1087/002/
+  - https://cdn2.hubspot.net/hubfs/3354902/Cybereason%20Labs%20Analysis%20Operation%20Cobalt%20Kitty.pdf
+  - https://www.mandiant.com/sites/default/files/2022-02/rt-apt41-dual-operation.pdf
+author: SOC Lab Capstone — soc-lab.local
+date: 2026-04-13
+modified: 2026-04-13
+tags:
+  - attack.discovery
+  - attack.t1087.002
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection_net_commands:
+    EventID:
+      - 4688
+      - 1
+    Image|endswith:
+      - '\net.exe'
+      - '\net1.exe'
+    CommandLine|contains:
+      - 'user /domain'
+      - 'group /domain'
+
+  selection_powershell_enum:
+    EventID:
+      - 4688
+      - 1
+    Image|endswith: '\powershell.exe'
+    CommandLine|contains:
+      - 'Get-ADUser'
+      - 'Get-LocalGroupMember'
+      - 'Get-ADGroupMember'
+
+  selection_query_user:
+    EventID:
+      - 4688
+      - 1
+    Image|endswith: '\query.exe'
+    CommandLine|contains: 'user'
+
+  selection_group_enumeration:
+    EventID: 4799
+
+  filter_vssvc:
+    CallingProcessName|endswith: '\VSSVC.exe'
+
+  condition: >
+    selection_net_commands
+    or selection_powershell_enum
+    or selection_query_user
+    or (selection_group_enumeration and not filter_vssvc)
+
+falsepositives:
+  - Legitimate administrative enumeration by IT staff using net commands
+  - IT asset management and monitoring tools querying domain accounts
+  - Helpdesk procedures verifying account existence or group membership
+  - Backup and directory synchronization tools performing scheduled AD queries
+fields:
+  - CommandLine
+  - Image
+  - ParentImage
+  - AccountName
+  - GroupName
+  - CallingProcessName
+  - LogonId
+level: medium
