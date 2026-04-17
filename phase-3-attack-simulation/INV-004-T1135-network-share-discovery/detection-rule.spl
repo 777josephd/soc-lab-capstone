@@ -1,0 +1,40 @@
+| title: [Discovery] T1135 - Network Share Discovery
+| Trigger: Per result
+| Severity: Medium
+| Indexes: soc-lab-ad, sysmon-ad
+| FP Exclusions: Machine accounts ($) excluded from 5140 branch
+| Key detection: 5140 user account vs machine account distinction
+|                is a high-fidelity standalone signal
+
+(index=soc-lab-ad OR index=sysmon-ad)
+(
+  (
+    (EventCode=4688 OR EventCode=1)
+    (
+      Process_Command_Line="*net view*"     OR
+      Process_Command_Line="*net share*"    OR
+      Process_Command_Line="*Get-SmbShare*" OR
+      Process_Command_Line="*dir \\\\*"     OR
+      CommandLine="*net view*"              OR
+      CommandLine="*net share*"             OR
+      CommandLine="*Get-SmbShare*"          OR
+      CommandLine="*dir \\\\*"
+    )
+  )
+  OR
+  (
+    EventCode=5140
+    (Share_Name="\\\\*\\C$" OR Share_Name="\\\\*\\ADMIN$" OR Share_Name="\\\\*\\IPC$")
+    NOT Account_Name="*$"
+  )
+)
+| eval technique="T1135 - Network Share Discovery"
+| eval tactic="Discovery"
+| eval severity="Medium"
+| eval source_rule="SPL-T1135-NetworkShareDiscovery"
+| table _time, host, Account_Name,
+        Process_Command_Line, CommandLine,
+        Image, process_name,
+        Share_Name, Share_Path,
+        technique, tactic, severity, source_rule
+| sort _time
