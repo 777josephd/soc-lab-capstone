@@ -1,0 +1,81 @@
+title: Domain Permission Groups Discovery via CLI and ADWS
+id: f2a8c4e6-9b3d-4f7a-8e2c-1d5b7f9a3c5e
+status: experimental
+description: >
+  Detects domain group enumeration using native Windows net commands
+  and PowerShell Get-AdGroup cmdlet. Includes detection of Active
+  Directory Web Services (ADWS) connections on port 9389 — the network
+  fingerprint of PowerShell AD module cmdlet execution that is missed
+  by traditional LDAP port 389/636 monitoring. Also detects
+  security-enabled local group enumeration via Event ID 4799,
+  excluding known false positive processes. Observed in FIN8
+  (BADHATCH), APT29 (SolarWinds — AdFind), Medusa Group (net group),
+  and Turla (net group "Domain Admins" /domain).
+references:
+  - https://attack.mitre.org/techniques/T1069/002/
+  - https://www.bitdefender.com/files/News/CaseStudies/study/394/Bitdefender-PR-Whitepaper-BADHATCH-creat5237-en-EN.pdf
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a
+author: SOC Lab Capstone — soc-lab.local
+date: 2026-04-14
+modified: 2026-04-14
+tags:
+  - attack.discovery
+  - attack.t1069.002
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection_net_commands:
+    EventID:
+      - 4688
+      - 1
+    Image|endswith:
+      - '\net.exe'
+      - '\net1.exe'
+    CommandLine|contains:
+      - 'group /domain'
+      - 'localgroup'
+      - 'group "domain admins"'
+      - 'group "enterprise admins"'
+      - 'group "account operators"'
+      - 'group "backup operators"'
+
+  selection_powershell_adgroup:
+    EventID:
+      - 4688
+      - 1
+    Image|endswith: '\powershell.exe'
+    CommandLine|contains: 'Get-AdGroup'
+
+  selection_adws_connection:
+    EventID: 3
+    Image|endswith: '\powershell.exe'
+    DestinationPort: 9389
+
+  selection_group_enumeration:
+    EventID: 4799
+
+  filter_vssvc:
+    CallingProcessName|endswith: '\VSSVC.exe'
+
+  condition: >
+    selection_net_commands
+    or selection_powershell_adgroup
+    or selection_adws_connection
+    or (selection_group_enumeration and not filter_vssvc)
+
+falsepositives:
+  - Legitimate administrative group management by IT staff
+  - IT asset management and directory synchronization tools
+  - Helpdesk procedures verifying group membership
+  - Scheduled AD audit scripts running from PowerShell
+fields:
+  - CommandLine
+  - Image
+  - ParentImage
+  - AccountName
+  - GroupName
+  - CallingProcessName
+  - DestinationPort
+  - DestinationIp
+level: medium

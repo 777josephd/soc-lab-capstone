@@ -1,0 +1,43 @@
+| title: [Discovery] T1069.002 - Domain Groups Discovery
+| Trigger: Per result
+| Severity: Medium
+| Indexes: soc-lab-ad, sysmon-ad
+| FP Exclusions: VSSVC.exe excluded from 4799 branch
+| Key detection: Port 9389 (ADWS) included for PowerShell AD cmdlet coverage
+
+(index=soc-lab-ad OR index=sysmon-ad)
+(
+  (
+    (EventCode=4688 OR EventCode=1)
+    (
+      Process_Command_Line="*net group*"             OR
+      Process_Command_Line="*net localgroup*"        OR
+      Process_Command_Line="*Get-AdGroup*"           OR
+      CommandLine="*net group*"                      OR
+      CommandLine="*net localgroup*"                 OR
+      CommandLine="*Get-AdGroup*"
+    )
+  )
+  OR
+  (
+    EventCode=3
+    DestinationPort=9389
+    (Image="*powershell*" OR process_exec="*powershell*")
+  )
+  OR
+  (
+    EventCode=4799
+    NOT Calling_Process_Name="*VSSVC*"
+  )
+)
+| eval technique="T1069.002 - Permission Groups Discovery: Domain Groups"
+| eval tactic="Discovery"
+| eval severity="Medium"
+| eval source_rule="SPL-T1069.002-DomainGroupsDiscovery"
+| table _time, host, Account_Name,
+        Process_Command_Line, CommandLine,
+        Image, process_name,
+        DestinationIp, DestinationPort,
+        Group_Name, Calling_Process_Name,
+        technique, tactic, severity, source_rule
+| sort _time
