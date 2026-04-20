@@ -1,0 +1,110 @@
+| ============================================================
+| Detection Rule: T1053.005 - Suspicious Scheduled Task Creation
+| Investigation: INV-005
+| Author: SOC Lab Capstone - MERLIN
+| Date: 2026-04-17
+| Technique: T1053.005 - Scheduled Task/Job: Scheduled Task
+| Tactics: Persistence, Execution, Privilege Escalation
+| Severity: CRITICAL / HIGH / MEDIUM (dynamic per result)
+| Schedule: */5 * * * *
+| Trigger: For each result
+| Throttle: 5 minutes on Task_Name field
+| ============================================================
+
+(index=soc-lab-ad OR index=sysmon-ad)
+earliest=-24h
+(
+  (EventCode=4698
+    AND NOT Account_Name="*$"
+    AND NOT Account_Name="SYSTEM")
+  OR
+  (EventCode=4688
+    AND (Process_Command_Line="*schtasks*create*"
+      OR Process_Command_Line="*Register-ScheduledTask*"
+      OR Process_Command_Line="*Invoke-CimMethod*PS_ScheduledTask*")
+    AND NOT Account_Name="*$")
+  OR
+  (EventCode=1
+    AND (CommandLine="*schtasks*create*"
+      OR CommandLine="*Register-ScheduledTask*"
+      OR CommandLine="*Invoke-CimMethod*PS_ScheduledTask*")
+    AND NOT User="*$")
+)
+| eval TaskContent_clean=mvindex(TaskContent,0)
+| eval severity=case(
+    EventCode=4698 AND match(TaskContent_clean,
+      "(?i)IEX|FromBase64String|EncodedCommand|GetItemProperty"),
+    "CRITICAL",
+    EventCode=4698 AND match(TaskContent_clean,
+      "(?i)powershell|cmd\.exe|wscript|cscript|mshta|rundll32"),
+    "HIGH",
+    EventCode=4698,
+    "MEDIUM",
+    EventCode=4688 OR EventCode=1,
+    "HIGH",
+    true(),
+    "LOW"
+  )
+| eval technique="T1053.005"
+| eval tactic="Persistence"
+| eval source_index=index
+| table _time, severity, technique, tactic, source_index,
+        EventCode, Account_Name, Task_Name,
+        TaskContent_clean, Process_Command_Line,
+        CommandLine, Creator_Process_Name
+| sort severity, _time
+
+| ============================================================
+| FALSE POSITIVE EXCLUSIONS
+| - Machine accounts (*$) excluded from all branches
+| - SYSTEM account excluded from 4698 branch
+| - 4702 task updates by machine accounts not included
+|   (confirmed benign in INV-005 — Win scheduler housekeeping)
+| - VSSVC.exe 4799 pattern excluded per Standing Note #5
+| ============================================================
+
+| ============================================================
+| SEVERITY TIER LOGIC
+| CRITICAL — TaskContent contains IEX, FromBase64String,
+|             EncodedCommand, or GetItemProperty
+|             → Indicates Base64-encoded payload execution
+|             → Qakbot/encoded PS chain TTP
+|             → Triggers Ansible remediation via n8n
+|
+| HIGH     — TaskContent contains powershell, cmd.exe, wscript,
+|             cscript, mshta, or rundll32
+|           — OR 4688/Sysmon 1 process creation events matching
+|             schtasks /create, Register-ScheduledTask,
+|             or Invoke-CimMethod PS_ScheduledTask
+|             → Indicates execution binary in task action
+|             → Triggers n8n notification only
+|
+| MEDIUM   — 4698 task creation without HIGH/CRITICAL pattern
+|             → Unusual executable in task action
+|             → Lower confidence — analyst review recommended
+| ============================================================
+
+| ============================================================
+| VALIDATED RESULTS — INV-005 (2026-04-17T23:00:23)
+| Total events: 21
+| CRITICAL: 1  (\ATOMIC-T1053.005 — IEX/FromBase64String)
+| HIGH:    18  (remaining 4698 events + 4688 + Sysmon 1)
+| MEDIUM:   2  (\AtomicTask — calc.exe, \T1053_005_WMI — notepad.exe)
+| ============================================================
+
+| ============================================================
+| FIELD NAME NOTE
+| Field confirmed in this environment:
+|   process_name (not Process_Name) for 4688 events
+|   Task_Name (not TaskName) for 4698 events
+|   Creator_Process_Name for parent process field
+| Verify field names against sourcetype before production use
+| ============================================================
+
+| ============================================================
+| n8n WEBHOOK INTEGRATION
+| Alert action: Webhook
+| URL: http://10.0.20.100:5678/webhook/splunk-t1053
+| Payload: JSON with search results
+| Severity field used by n8n IF node for branching logic
+| ============================================================

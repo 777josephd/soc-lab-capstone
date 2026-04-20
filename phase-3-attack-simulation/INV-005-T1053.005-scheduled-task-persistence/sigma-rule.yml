@@ -1,0 +1,191 @@
+title: Suspicious Scheduled Task Creation - T1053.005
+id: a9b3c2d1-e4f5-6789-abcd-ef0123456789
+status: experimental
+description: >
+  Detects scheduled task creation via schtasks.exe CLI,
+  PowerShell Register-ScheduledTask cmdlets, or WMI
+  Invoke-CimMethod PS_ScheduledTask. Covers three distinct
+  execution paths confirmed in SOC Lab INV-005 ART simulation.
+  High-severity variant detects Base64-encoded payload execution
+  via IEX chain stored in HKCU registry key — documented Qakbot
+  and ransomware delivery TTP. Excludes machine accounts and
+  SYSTEM to reduce false positive volume from Task Scheduler
+  internal housekeeping activity.
+references:
+  - https://attack.mitre.org/techniques/T1053/005/
+  - https://www.microsoft.com/security/blog/2022/04/12/tarrask-malware-uses-scheduled-tasks-for-defense-evasion/
+  - https://thedfirreport.com/2022/02/07/qbot-likes-to-move-it-move-it/
+  - https://www.mandiant.com/resources/blog/sandworm-disrupts-power-ukraine-operational-technology
+author: SOC Lab Capstone — INV-005 — MERLIN
+date: 2026/04/17
+modified: 2026/04/19
+tags:
+  - attack.persistence
+  - attack.execution
+  - attack.privilege_escalation
+  - attack.t1053.005
+
+# ==============================================================
+# DETECTION LOGIC
+# Three detection branches covering distinct execution paths:
+#
+# Branch 1 — schtasks.exe CLI invocation
+#   Covers: Test 1 (onlogon/onstart), Test 7 (Base64 IEX chain)
+#   Parent chain: powershell.exe → cmd.exe → schtasks.exe
+#   Key fields: NewProcessName, CommandLine, SubjectUserName
+#
+# Branch 2 — PowerShell Register-ScheduledTask cmdlets
+#   Covers: Test 4 (New-ScheduledTaskAction, Register-ScheduledTask)
+#   Execution: Child powershell.exe inline script block
+#   Key fields: CommandLine containing PS task cmdlet names
+#
+# Branch 3 — WMI Invoke-CimMethod PS_ScheduledTask
+#   Covers: Test 6 (RegisterByXml via COM)
+#   Execution: Child powershell.exe reading XML from disk
+#   Key fields: CommandLine containing Invoke-CimMethod + PS_ScheduledTask
+#
+# Branch 4 — Encoded execution in task action (CRITICAL tier)
+#   Covers: Test 7 IEX Base64 chain in schtasks TR parameter
+#   Key fields: CommandLine containing IEX alongside schtasks
+# ==============================================================
+
+logsource:
+  product: windows
+  category: process_creation
+
+detection:
+  # Branch 1 — schtasks.exe CLI task creation
+  selection_schtasks_cli:
+    EventID: 4688
+    NewProcessName|endswith: '\schtasks.exe'
+    CommandLine|contains|all:
+      - '/create'
+
+  # Branch 2 — PowerShell native task cmdlets
+  selection_powershell_cmdlets:
+    EventID: 4688
+    CommandLine|contains:
+      - 'Register-ScheduledTask'
+      - 'New-ScheduledTaskAction'
+
+  # Branch 3 — WMI CimMethod task registration
+  selection_wmi_cimmethod:
+    EventID: 4688
+    CommandLine|contains|all:
+      - 'Invoke-CimMethod'
+      - 'PS_ScheduledTask'
+
+  # Branch 4 — Encoded execution chain in task action
+  selection_encoded_execution:
+    EventID: 4688
+    CommandLine|contains|all:
+      - 'schtasks'
+      - 'IEX'
+
+  # Filter — machine accounts (Task Scheduler housekeeping)
+  filter_machine_accounts:
+    SubjectUserName|endswith: '$'
+
+  # Filter — SYSTEM account
+  filter_system_account:
+    SubjectUserName: 'SYSTEM'
+
+  condition: >
+    (
+      selection_schtasks_cli
+      or selection_powershell_cmdlets
+      or selection_wmi_cimmethod
+      or selection_encoded_execution
+    )
+    and not filter_machine_accounts
+    and not filter_system_account
+
+falsepositives:
+  - Legitimate administrative scheduled task creation by
+    authorized administrators — review SubjectUserName and
+    CommandLine context before closing
+  - Software installation routines creating maintenance tasks
+    via schtasks.exe — typically run as SYSTEM (filtered) or
+    with identifiable vendor task names
+  - Windows Update and Software Protection Platform internal
+    task Index updates by machine accounts — filtered by
+    machine account exclusion
+  - IT automation frameworks (SCCM, Ansible, etc.) creating
+    tasks — review CommandLine for known management tool paths
+
+level: high
+
+# ==============================================================
+# SEVERITY ENRICHMENT (Splunk SPL implementation)
+# The following severity tiers are implemented in the Splunk
+# detection rule (detection-rule.spl) using eval logic against
+# the TaskContent field from EventCode 4698. This Sigma rule
+# covers the process creation layer only. Full severity tiering
+# requires correlation with 4698 TaskContent inspection.
+#
+# CRITICAL — TaskContent contains: IEX, FromBase64String,
+#             EncodedCommand, GetItemProperty
+#           → Base64-encoded payload execution — Qakbot TTP
+#           → Triggers Ansible remediation via n8n
+#
+# HIGH     — TaskContent contains: powershell, cmd.exe,
+#             wscript, cscript, mshta, rundll32
+#           → Execution binary in task action
+#           → Triggers n8n notification
+#
+# MEDIUM   — All other 4698 task creation events from
+#             non-machine, non-SYSTEM accounts
+#           → Analyst review recommended
+# ==============================================================
+
+# ==============================================================
+# RELATED DETECTION — EVENT ID 4698 (Task Created)
+# This Sigma rule covers process creation (4688/Sysmon 1).
+# Complementary detection on Event ID 4698 should include:
+#
+# logsource:
+#   product: windows
+#   service: security
+# detection:
+#   selection:
+#     EventID: 4698
+#   filter_machine:
+#     SubjectUserName|endswith: '$'
+#   filter_system:
+#     SubjectUserName: 'SYSTEM'
+#   condition: selection and not filter_machine and not filter_system
+#
+# Key field for triage: TaskContent XML — inspect for:
+#   - IEX, FromBase64String, EncodedCommand → CRITICAL
+#   - powershell.exe, cmd.exe, wscript → HIGH
+#   - Absence of SD write in subsequent Sysmon 13 → Hidden task
+# ==============================================================
+
+# ==============================================================
+# TARRASK HIDDEN TASK VARIANT
+# This rule does NOT cover the Tarrask hidden task technique
+# (T1564 — Hide Artifacts) where the Security Descriptor (SD)
+# registry value under TaskCache\Tree\[TaskName]\ is deleted
+# using SYSTEM privileges, rendering the task invisible to
+# schtasks /query.
+#
+# Detection for Tarrask requires monitoring Sysmon Event ID 12
+# (RegistryEvent — key deleted) for:
+# TargetObject: *\Schedule\TaskCache\Tree\*\SD
+# Image: *\system32\svchost.exe (or processes with SYSTEM token)
+#
+# Reference: Tarrask malware — Microsoft Security Blog 2022-04-12
+# Reserved for future T1564 investigation.
+# ==============================================================
+
+# ==============================================================
+# INVESTIGATION NOTES — INV-005
+# Validated: 2026-04-17 23:00:23
+# Environment: Windows Server 2022 DC — WIN-9J5N24TODJ0
+# ART tests: T1053.005 Tests 1, 4, 6, 7
+# Results: 21 total events — 1 CRITICAL, 18 HIGH, 2 MEDIUM
+# Field note: process_name (not Process_Name) in this env
+# Field note: Task_Name (not TaskName) for 4698 events
+# Sysmon 1 required for full coverage — 4688 misses svchost.exe
+# parent chain for Test 7 (Log 55 — svchost.exe → schtasks.exe)
+# ==============================================================
